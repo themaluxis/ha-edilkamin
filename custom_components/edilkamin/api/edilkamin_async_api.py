@@ -74,10 +74,6 @@ class EdilkaminAsyncApi:
             {"name": "fan_" + str(index) + "_speed", "value": int(value)}
         )
 
-    async def check(self):
-        """Call check config."""
-        await self.execute_command({"name": "check", "value": False})
-
     async def get_token(self):
         return await self._hass.async_add_executor_job(
             edilkamin.sign_in, self._username, self._password
