@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -13,23 +12,17 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
-if TYPE_CHECKING:
-    from custom_components.edilkamin.api.edilkamin_async_api import (
-        EdilkaminAsyncApi,
-    )
-
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, config_entry, async_add_devices):
     """Add sensors for passed config_entry in HA."""
     coordinator = hass.data[DOMAIN]["coordinator"]
-    async_api = hass.data[DOMAIN][config_entry.entry_id]
 
     async_add_devices(
         [
             EdilkaminTankBinarySensor(coordinator),
-            EdilkaminCheckBinarySensor(async_api),
+            EdilkaminCheckBinarySensor(coordinator),
         ]
     )
 
@@ -68,14 +61,14 @@ class EdilkaminTankBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminCheckBinarySensor(BinarySensorEntity):
-    """Representation of a Sensor."""
+class EdilkaminCheckBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor that reports a problem when the coordinator update fails."""
 
-    def __init__(self, api: EdilkaminAsyncApi) -> None:
+    def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
+        super().__init__(coordinator)
         self._state = None
-        self._api = api
-        self._mac_address = self._api.get_mac_address()
+        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Check configuration"
         self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
@@ -83,7 +76,7 @@ class EdilkaminCheckBinarySensor(BinarySensorEntity):
 
     @property
     def is_on(self):
-        """Return True if the binary sensor is on."""
+        """Return True if the binary sensor is on (problem detected)."""
         return self._state
 
     @property
@@ -96,13 +89,8 @@ class EdilkaminCheckBinarySensor(BinarySensorEntity):
         """Return a unique_id for this entity."""
         return f"{self._mac_address}_check_binary_sensor"
 
-    async def async_update(self) -> None:
-        """Fetch new state data for the sensor."""
-        try:
-            await self._api.check()
-            self._state = False
-            self.async_write_ha_state()
-        except Exception:
-            self._state = True
-            self.async_write_ha_state()
-            _LOGGER.exception("Exception occurred during check configuration")
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # If the coordinator last update was successful, no problem
+        self._state = self.coordinator.last_update_success is False
+        self.async_write_ha_state()
