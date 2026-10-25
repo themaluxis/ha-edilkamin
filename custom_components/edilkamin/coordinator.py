@@ -4,6 +4,8 @@ import logging
 import time
 
 import edilkamin
+from homeassistant.core import CALLBACK_TYPE, HassJob
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 import httpx
 import jwt
@@ -55,6 +57,8 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         # Outcome of the last "check" command, None if never sent
         self.last_check_success: bool | None = None
         self.last_check_time: datetime | None = None
+        # Cancels the refresh planned after a command, None when nothing planned
+        self._unsub_command_refresh: CALLBACK_TYPE | None = None
 
     async def refresh_token(self) -> str:
         """Refresh the token only if expired."""
@@ -131,6 +135,37 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
             )
         return data
 
+    async def async_refresh_after_command(self) -> None:
+        """Make the stove publish after a command, then refresh a bit later.
+
+        device/info only returns the state last published by the stove, so an
+        immediate refresh would read the state from before the command. Commands
+        sent close together re-arm the same timer: a burst of commands gives a
+        single delayed refresh.
+        """
+        if self.can_send_check():
+            await self.async_send_check()
+
+        if self._unsub_command_refresh is not None:
+            self._unsub_command_refresh()
+        self._unsub_command_refresh = async_call_later(
+            self.hass,
+            self._check_delay,
+            HassJob(self._async_command_refresh, cancel_on_shutdown=True),
+        )
+
+    async def _async_command_refresh(self, _now: datetime) -> None:
+        """Refresh planned by async_refresh_after_command."""
+        self._unsub_command_refresh = None
+        await self.async_refresh()
+
+    async def async_shutdown(self) -> None:
+        """Cancel the planned refresh, then stop the coordinator."""
+        if self._unsub_command_refresh is not None:
+            self._unsub_command_refresh()
+            self._unsub_command_refresh = None
+        await super().async_shutdown()
+
     def can_send_check(self) -> bool:
         """Return True when the check cooldown is over."""
         return (
@@ -154,12 +189,15 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         return True
 
     @staticmethod
-    def get_status_timestamp_from(data: dict | None) -> float | None:
-        """Return status.timestamp of a device/info payload, in seconds."""
-        timestamp = ((data or {}).get("status") or {}).get("timestamp")
-        if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
-            return timestamp / 1000
-        return None
+    def get_status_timestamp_from(
+        data: dict | None, block: str = "status"
+    ) -> float | None:
+        """Return the timestamp of a block ("status" or "nvm"), in seconds."""
+        timestamp = ((data or {}).get(block) or {}).get("timestamp")
+        if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+            return None
+        # status.timestamp is in milliseconds, accept seconds just in case
+        return timestamp / 1000 if timestamp > 1e11 else float(timestamp)
 
     def compute_data_age(self, data: dict | None) -> float | None:
         """Return the age in seconds of a device/info payload."""
@@ -168,9 +206,9 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
             return None
         return time.time() - timestamp
 
-    def get_status_timestamp(self) -> float | None:
-        """Return the time the stove last published its status, in seconds."""
-        return self.get_status_timestamp_from(self._device_info)
+    def get_status_timestamp(self, block: str = "status") -> float | None:
+        """Return the time the stove last published a block, in seconds."""
+        return self.get_status_timestamp_from(self._device_info, block)
 
     def get_data_age(self) -> float | None:
         """Return how old the current data is, in seconds."""

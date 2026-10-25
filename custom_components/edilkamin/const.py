@@ -18,3 +18,5 @@ CHECK_DELAY = 12  # seconds
 CHECK_COOLDOWN = 60  # seconds
 # Entities become unavailable when status.timestamp is older than this
 UNAVAILABLE_AFTER = 300  # seconds
+# Maximum time an optimistic value is kept after a command
+OPTIMISTIC_TIMEOUT = 60  # seconds

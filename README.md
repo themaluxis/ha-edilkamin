@@ -102,6 +102,10 @@ a live reading. The integration polls it every 15 s and checks how old the data 
 - older than 300 s: all entities become unavailable, except the `Data age`,
   `Last stove update` and `Check configuration` diagnostics.
 
+When you change a setting (target temperature, mode, fan, switches), the new value is
+shown immediately. The integration then asks the stove to publish and refreshes 12 s
+later; the requested value stays displayed until the stove confirms it (60 s at most).
+
 ## Installation
 
 Click on this button:

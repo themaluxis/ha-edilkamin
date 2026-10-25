@@ -15,6 +15,18 @@ All notable changes to this integration are documented in this file.
   last status published by the stove). Both stay available when the cloud is frozen.
 - All other entities become unavailable when the stove has not published for more
   than 300 s, instead of silently showing frozen values.
+- Commands (target temperature, HVAC mode, preset, fan speed, switches) update the
+  entity at once with the requested value instead of bouncing back to the old value.
+  The requested value is kept until the stove publishes data newer than the command
+  (`status.timestamp`, or `nvm.timestamp` for values stored in `nvm`: target
+  temperature, fan speed, preset, chrono, standby), or for 60 s at most. Older polls
+  in between no longer overwrite it.
+- After a command the coordinator sends a `check` (within the 60 s cooldown) and
+  refreshes 12 s later. Close commands re-arm the same timer, so a burst of clicks
+  gives one `check` and one delayed refresh.
+- A command refused by the cloud leaves the state unchanged and shows a readable
+  error in the UI (including "standby only available from auto mode", which was
+  silently ignored when turning standby off).
 - Thresholds (`STALE_AFTER`, `CHECK_DELAY`, `CHECK_COOLDOWN`, `UNAVAILABLE_AFTER`)
   are constants in `const.py`.
 

@@ -6,18 +6,16 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.exceptions import HomeAssistantError
-
-from custom_components.edilkamin.api.edilkamin_async_api import (
-    EdilkaminAsyncApi,
-    NotInRightStateError,
-)
 
 from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from custom_components.edilkamin.api.edilkamin_async_api import (
+        EdilkaminAsyncApi,
+    )
 
     from .data import EdilkaminConfigEntry
 
@@ -54,26 +52,21 @@ class EdilkaminAirekareSwitch(EdilkaminEntity, SwitchEntity):
         self._attr_icon = "mdi:air-filter"
         self._attr_name = "Airekare"
 
-
-    @property
-    def is_on(self):
-        """Return True if the switch sensor is on."""
-        return self.coordinator.get_airkare_status()
-
     @property
     def unique_id(self):
         """Return a unique_id for this entity."""
         return f"{self._mac_address}_airekare_switch"
 
+    def _update_from_coordinator(self) -> None:
+        self._attr_is_on = self.coordinator.get_airkare_status()
+
     async def async_turn_on(self, **_kwargs) -> None:
         """Turn the entity on."""
-        await self._api.enable_airkare()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(self._api.enable_airkare(), _attr_is_on=True)
 
     async def async_turn_off(self, **_kwargs):
         """Turn the entity off."""
-        await self._api.disable_airkare()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(self._api.disable_airkare(), _attr_is_on=False)
 
 
 class EdilkaminRelaxSwitch(EdilkaminEntity, SwitchEntity):
@@ -89,24 +82,20 @@ class EdilkaminRelaxSwitch(EdilkaminEntity, SwitchEntity):
         self._attr_name = "Relax mode"
 
     @property
-    def is_on(self):
-        """Return True if the binary sensor is on."""
-        return self.coordinator.get_relax_status()
-
-    @property
     def unique_id(self):
         """Return a unique_id for this entity."""
         return f"{self._mac_address}_relax_switch"
 
+    def _update_from_coordinator(self) -> None:
+        self._attr_is_on = self.coordinator.get_relax_status()
+
     async def async_turn_on(self, **_kwargs) -> None:
         """Turn the entity on."""
-        await self._api.enable_relax()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(self._api.enable_relax(), _attr_is_on=True)
 
     async def async_turn_off(self, **_kwargs):
         """Turn the entity off."""
-        await self._api.disable_relax()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(self._api.disable_relax(), _attr_is_on=False)
 
 
 class EdilkaminChronoModeSwitch(EdilkaminEntity, SwitchEntity):
@@ -122,24 +111,24 @@ class EdilkaminChronoModeSwitch(EdilkaminEntity, SwitchEntity):
         self._attr_name = "Chrono mode"
 
     @property
-    def is_on(self):
-        """Return True if the binary sensor is on."""
-        return self.coordinator.get_chrono_mode_status()
-
-    @property
     def unique_id(self):
         """Return a unique_id for this entity."""
         return f"{self._mac_address}_chrono_mode_switch"
 
+    def _update_from_coordinator(self) -> None:
+        self._attr_is_on = self.coordinator.get_chrono_mode_status()
+
     async def async_turn_on(self, **_kwargs) -> None:
         """Turn the entity on."""
-        await self._api.enable_chrono_mode()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(
+            self._api.enable_chrono_mode(), block="nvm", _attr_is_on=True
+        )
 
     async def async_turn_off(self, **_kwargs):
         """Turn the entity off."""
-        await self._api.disable_chrono_mode()
-        await self.coordinator.async_refresh()
+        await self._async_send_command(
+            self._api.disable_chrono_mode(), block="nvm", _attr_is_on=False
+        )
 
 
 class EdilkaminStandByModeSwitch(EdilkaminEntity, SwitchEntity):
@@ -172,32 +161,21 @@ class EdilkaminStandByModeSwitch(EdilkaminEntity, SwitchEntity):
         self._attr_extra_state_attributes = additional_att
 
     @property
-    def is_on(self):
-        """Return True if the binary sensor is on."""
-        return self.coordinator.get_standby_mode()
-
-    @property
     def unique_id(self):
         """Return a unique_id for this entity."""
         return f"{self._mac_address}_standby_mode_switch"
 
+    def _update_from_coordinator(self) -> None:
+        self._attr_is_on = self.coordinator.get_standby_mode()
+
     async def async_turn_on(self, **_kwargs) -> None:
         """Turn the entity on."""
-        try:
-            await self._api.enable_standby_mode()
-            await self.coordinator.async_refresh()
-        except NotInRightStateError as e:
-            _LOGGER.warning(e)
-            self._attr_is_on = False
-            await self.coordinator.async_refresh()
-            raise HomeAssistantError(e) from e
+        await self._async_send_command(
+            self._api.enable_standby_mode(), block="nvm", _attr_is_on=True
+        )
 
     async def async_turn_off(self, **_kwargs):
         """Turn the entity off."""
-        try:
-            await self._api.disable_standby_mode()
-            await self.coordinator.async_refresh()
-        except NotInRightStateError as e:
-            _LOGGER.warning(e)
-            self._attr_is_on = True
-            await self.coordinator.async_refresh()
+        await self._async_send_command(
+            self._api.disable_standby_mode(), block="nvm", _attr_is_on=False
+        )

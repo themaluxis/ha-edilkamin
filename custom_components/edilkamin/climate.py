@@ -115,21 +115,24 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode):
         """Set new target fan mode."""
-        if fan_mode == FAN_PRESET_MODE_AUTO:
-            await self.api.set_fan_speed(6)  # 6 is auto mode
-        else:
-            await self.api.set_fan_speed(fan_mode)
-        await self.coordinator.async_refresh()
+        speed = 6 if fan_mode == FAN_PRESET_MODE_AUTO else fan_mode  # 6 is auto mode
+        await self._async_send_command(
+            self.api.set_fan_speed(speed), block="nvm", _attr_fan_mode=fan_mode
+        )
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
-        if kwargs.get(ATTR_TEMPERATURE) is not None:
-            target_tmp = kwargs.get(ATTR_TEMPERATURE)
-            await self.api.set_temperature(target_tmp)
-        await self.coordinator.async_refresh()
+        target_tmp = kwargs.get(ATTR_TEMPERATURE)
+        if target_tmp is None:
+            return
+        await self._async_send_command(
+            self.api.set_temperature(target_tmp),
+            block="nvm",
+            _attr_target_temperature=target_tmp,
+        )
 
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+    def _update_from_coordinator(self) -> None:
+        """Set the climate attributes from the coordinator data."""
         temperature = self.coordinator.get_temperature()
         if temperature is not None and temperature != 0:
             self._attr_current_temperature = temperature
@@ -137,10 +140,10 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
         self._attr_target_temperature = self.coordinator.get_target_temperature()
 
         fan_speed = self.coordinator.get_fan_speed()
-        if fan_speed == 6: # auto mode
+        if fan_speed == 6:  # auto mode
             self._attr_fan_mode = FAN_PRESET_MODE_AUTO
-        else:
-            self._attr_fan_mode = str(self.coordinator.get_fan_speed())
+        elif fan_speed is not None:
+            self._attr_fan_mode = str(fan_speed)
 
         power = self.coordinator.get_power_status()
         if power is True:
@@ -152,9 +155,8 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
             self._attr_preset_mode = PRESET_AUTO
         else:
             manual_power = self.coordinator.get_manual_power()
-            self._attr_preset_mode = PRESET_MODES[manual_power]
-
-        self.async_write_ha_state()
+            if isinstance(manual_power, int) and 0 < manual_power < len(PRESET_MODES):
+                self._attr_preset_mode = PRESET_MODES[manual_power]
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode."""
@@ -163,12 +165,11 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
             raise ValueError(msg)
 
         if hvac_mode == HVACMode.OFF:
-            await self.api.disable_power()
+            command = self.api.disable_power()
+        else:
+            command = self.api.enable_power()
 
-        if hvac_mode == HVACMode.HEAT:
-            await self.api.enable_power()
-
-        await self.coordinator.async_refresh()
+        await self._async_send_command(command, _attr_hvac_mode=hvac_mode)
 
     async def async_turn_on(self):
         """Turn on."""
@@ -180,9 +181,15 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
 
     async def async_set_preset_mode(self, preset_mode) -> None:
         """Set new target preset mode."""
+        await self._async_send_command(
+            self._async_apply_preset(preset_mode),
+            block="nvm",
+            _attr_preset_mode=preset_mode,
+        )
+
+    async def _async_apply_preset(self, preset_mode) -> None:
         if preset_mode == PRESET_AUTO:
             await self.api.enable_auto_mode()
         else:
             await self.api.disable_auto_mode()
             await self.api.set_manual_power_level(PRESET_MODE_TO_POWER[preset_mode])
-        await self.coordinator.async_refresh()
