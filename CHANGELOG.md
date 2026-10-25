@@ -48,6 +48,20 @@ All notable changes to this integration are documented in this file.
 - `scripts/measure_check.py`: development tool measuring the publication window after a
   `check` and whether `nvm` is refreshed by it (see README, Development notes).
 
+### Measurements
+
+Measured on the reference stove with `scripts/measure_check.py` (2026-10-25, stove in
+phase 0, no other client sending checks):
+
+- after a `check`, the first status publication arrives in ~4 s;
+- the stove then publishes every ~2 s (1–4 s) for ~2 min (last publication at
+  +118 s), then stops: the data starts ageing again;
+- a `check` does **not** refresh `nvm` (`nvm.timestamp` stayed ~33 min old,
+  `crc16_nvm` unchanged). `nvm` is therefore not used to decide freshness.
+
+The defaults are kept: with `STALE_AFTER` = 90 s the data is never older than
+~110 s, for about one `check` every 3.5 min (the old binary sensor sent 120 per hour).
+
 ### Changed
 
 - When the cloud answers HTTP 401 or 403 (token revoked server side), the integration
