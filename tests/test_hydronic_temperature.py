@@ -20,6 +20,7 @@ def mock_coordinator():
     coordinator.get_mac_address = Mock(return_value="00:11:22:33:44:55")
     coordinator.get_nb_fans = Mock(return_value=1)
     coordinator.async_add_listener = Mock()
+    coordinator.is_data_too_old = Mock(return_value=False)
     coordinator.last_update_success = True
     return coordinator
 
@@ -111,11 +112,11 @@ class TestWaterTemperatureSetup:
     ):
         """Test sensors are created only for the hydronic keys the stove reports."""
         mock_coordinator.get_temperatures = Mock(return_value=temperatures)
-        hass = Mock()
-        hass.data = {"edilkamin": {"coordinator": mock_coordinator}}
+        entry = Mock()
+        entry.runtime_data.coordinator = mock_coordinator
         add_entities = Mock()
 
-        asyncio.run(async_setup_entry(hass, Mock(), add_entities))
+        asyncio.run(async_setup_entry(Mock(), entry, add_entities))
 
         sensors = add_entities.call_args.args[0]
         keys = {

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -9,19 +11,97 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
 
-from .const import DOMAIN
+from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from .data import EdilkaminConfigEntry
+
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EdilkaminStatusSensorDescription(SensorEntityDescription):
+    """A sensor reading one value of the status block of device/info."""
+
+    path: tuple[str, ...]
+
+
+STATUS_SENSORS: tuple[EdilkaminStatusSensorDescription, ...] = (
+    EdilkaminStatusSensorDescription(
+        key="smoke_temperature",
+        name="Smoke temperature",
+        path=("temperatures", "thermocouple"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:thermometer-high",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="alarm_code",
+        name="Alarm code",
+        path=("state", "alarm_type"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:alert-circle-outline",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="board_temperature",
+        name="Board temperature",
+        path=("temperatures", "board"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="ntc_1_temperature",
+        name="NTC probe 1",
+        path=("temperatures", "feeler_ntc_1"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="hours_before_service",
+        name="Hours before service",
+        path=("counters", "service_time"),
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:wrench-clock",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="operational_phase_code",
+        name="Operational phase code",
+        path=("state", "operational_phase"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="sub_operational_phase",
+        name="Sub operational phase",
+        path=("state", "sub_operational_phase"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+)
+
+
+def nvm_timestamp_attribute(coordinator) -> str | None:
+    """Return when the nvm block was published, it can be older than status."""
+    timestamp = coordinator.get_status_timestamp("nvm")
+    if not isinstance(timestamp, (int, float)):
+        return None
+    return datetime.fromtimestamp(timestamp, UTC).isoformat()
 
 OPERATIONAL_STATES = {
     0: "Off",
@@ -36,13 +116,13 @@ OPERATIONAL_STATES = {
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    _config_entry: ConfigEntry,
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ):
     """Add sensors for passed config_entry in HA."""
 
-    coordinator = hass.data[DOMAIN]["coordinator"]
+    coordinator = config_entry.runtime_data.coordinator
 
     sensors = [
         EdilkaminTemperatureSensor(coordinator),
@@ -52,7 +132,16 @@ async def async_setup_entry(
         EdilkaminOperationalSensor(coordinator),
         EdilkaminAutonomySensor(coordinator),
         EdilkaminPowerOnsSensor(coordinator),
+        EdilkaminDataAgeSensor(coordinator),
+        EdilkaminLastUpdateSensor(coordinator),
     ]
+
+    # Only the values reported by this stove model get a sensor
+    sensors.extend(
+        EdilkaminStatusSensor(coordinator, description)
+        for description in STATUS_SENSORS
+        if coordinator.get_status_value(*description.path) is not None
+    )
 
     # "puffer" is the Edilkamin API key for the buffer tank water temperature.
     temperatures = coordinator.get_temperatures()
@@ -73,17 +162,15 @@ async def async_setup_entry(
     async_add_devices(sensors)
 
 
-class EdilkaminTemperatureSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminTemperatureSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Temperature"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:thermometer"
 
     @property
@@ -115,19 +202,17 @@ class EdilkaminTemperatureSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminFanSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminFanSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator, index: int) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:fan"
         self._index = index
 
         self._attr_name = f"Fan {index}"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -147,22 +232,23 @@ class EdilkaminFanSensor(CoordinatorEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
         self._state = self.coordinator.get_fan_speed(self._index)
+        self._attr_extra_state_attributes = {
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator)
+        }
         self.async_write_ha_state()
 
 
-class EdilkaminAlarmSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminAlarmSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:alert"
         self._attributes: dict[str, Any] = {}
 
         self._attr_name = "Nb alarms"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -191,6 +277,7 @@ class EdilkaminAlarmSensor(CoordinatorEntity, SensorEntity):
 
         errors = {
             "errors": [],
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator),
         }
 
         for alarm in alarms:
@@ -206,17 +293,15 @@ class EdilkaminAlarmSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminActualPowerSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminActualPowerSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Actual power"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:flash"
 
     @property
@@ -245,20 +330,18 @@ class EdilkaminActualPowerSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminOperationalSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminOperationalSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:eye"
         self._attributes: dict[str, Any] = {}
 
         self._attr_name = "Operational phase"
         self._attr_options = list(OPERATIONAL_STATES.values())
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -285,17 +368,15 @@ class EdilkaminOperationalSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminAutonomySensor(CoordinatorEntity, SensorEntity):
+class EdilkaminAutonomySensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Autonomy"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:timer"
 
         additional_att = {
@@ -335,17 +416,15 @@ class EdilkaminAutonomySensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminPowerOnsSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminPowerOnsSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Power ons"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:counter"
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -362,10 +441,13 @@ class EdilkaminPowerOnsSensor(CoordinatorEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
         self._state = self.coordinator.get_power_ons()
+        self._attr_extra_state_attributes = {
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator)
+        }
         self.async_write_ha_state()
 
 
-class EdilkaminWaterTemperatureSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminWaterTemperatureSensor(EdilkaminEntity, SensorEntity):
     """A hydronic temperature from the existing cloud coordinator."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -377,9 +459,7 @@ class EdilkaminWaterTemperatureSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._temperature_key = key
         self._attr_name = name
-        mac_address = coordinator.get_mac_address()
-        self._attr_unique_id = f"{mac_address}_{key}_temperature"
-        self._attr_device_info = {"identifiers": {(DOMAIN, mac_address)}}
+        self._attr_unique_id = f"{self._mac_address}_{key}_temperature"
 
     @property
     def native_value(self) -> float | None:
@@ -391,3 +471,68 @@ class EdilkaminWaterTemperatureSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return super().available and self.native_value is not None
+
+
+class EdilkaminDataAgeSensor(EdilkaminEntity, SensorEntity):
+    """Age of the data published by the stove (now - status.timestamp)."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-sand"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_name = "Data age"
+        self._attr_unique_id = f"{self._mac_address}_data_age"
+
+    @property
+    def available(self) -> bool:
+        """Stay available to show how old the data is."""
+        return True
+
+    @property
+    def native_value(self) -> int | None:
+        age = self.coordinator.get_data_age()
+        return None if age is None else round(age)
+
+
+class EdilkaminLastUpdateSensor(EdilkaminEntity, SensorEntity):
+    """Time the stove last published its status (status.timestamp)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:update"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_name = "Last stove update"
+        self._attr_unique_id = f"{self._mac_address}_last_stove_update"
+
+    @property
+    def available(self) -> bool:
+        """Stay available to show when the stove last published."""
+        return True
+
+    @property
+    def native_value(self) -> datetime | None:
+        timestamp = self.coordinator.get_status_timestamp()
+        return None if timestamp is None else datetime.fromtimestamp(timestamp, UTC)
+
+
+class EdilkaminStatusSensor(EdilkaminEntity, SensorEntity):
+    """A value of the status block of device/info."""
+
+    entity_description: EdilkaminStatusSensorDescription
+
+    def __init__(
+        self, coordinator, description: EdilkaminStatusSensorDescription
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{self._mac_address}_{description.key}"
+
+    @property
+    def native_value(self):
+        return self.coordinator.get_status_value(*self.entity_description.path)

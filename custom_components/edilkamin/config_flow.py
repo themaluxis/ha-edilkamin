@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from homeassistant import config_entries
 from homeassistant.exceptions import HomeAssistantError
@@ -13,6 +14,9 @@ from custom_components.edilkamin.api.edilkamin_async_api import EdilkaminAsyncAp
 
 from .const import DOMAIN, MAC_ADDRESS, PASSWORD, USERNAME
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
@@ -22,6 +26,8 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(PASSWORD): str,
     }
 )
+
+STEP_REAUTH_DATA_SCHEMA = vol.Schema({vol.Required(PASSWORD): str})
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -73,6 +79,36 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(self, _entry_data: Mapping[str, Any]):
+        """Start a reauthentication after the credentials were refused."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Ask for the new password and check it before updating the entry."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        username = entry.data[USERNAME]
+
+        if user_input is not None:
+            api = EdilkaminAsyncApi(
+                mac_address=entry.data[MAC_ADDRESS],
+                username=username,
+                password=user_input[PASSWORD],
+                hass=self.hass,
+            )
+            if await api.authenticate():
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={PASSWORD: user_input[PASSWORD]}
+                )
+            errors["base"] = "invalid_auth"
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_REAUTH_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={"username": username},
         )
 
 

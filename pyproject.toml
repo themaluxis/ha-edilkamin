@@ -3,7 +3,7 @@ name = "ha-edilkamin"
 version = "0.1.0"
 requires-python = ">=3.13.2"
 dependencies = [
-    "edilkamin==1.6.0",
+    "edilkamin==1.7.0",
     "macaddress==2.0.2",
 ]
 
@@ -56,6 +56,10 @@ ignore = [
     "D",
     "COM812",  # Avoid conflict with formatter
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Standalone command line tools: printing is their output, not a package
+"scripts/*" = ["T201", "INP001"]
 
 [tool.ruff.lint.isort]
 # Carry over isort behavior

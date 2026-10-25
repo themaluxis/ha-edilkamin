@@ -721,16 +721,16 @@ wheels = [
 
 [[package]]
 name = "edilkamin"
-version = "1.6.0"
+version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
     { name = "pycognito" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/03/841a9c297f2f70fc6424e6c23df75344f675e74a2865ec934a858614bee4/edilkamin-1.6.0.tar.gz", hash = "sha256:7634184499eb3a8a96fffa6dcc42f2b86a6edcda00a77c00e20b3e8b51d0aaf6", size = 21834, upload-time = "2025-12-09T14:17:34.679Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/2c/7186fa59a4db42cd1fce101ffbb8adb254818586e2895605b66d5fa64892/edilkamin-1.7.0.tar.gz", hash = "sha256:c7bce991e58ccf21add364c5425d1f338321e3f14624489407a96a7a071b6c43", size = 22255, upload-time = "2026-03-09T22:05:36.063Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/92/af71558d88efa50d2d2a31885344a1041d7c391d281117e21c302c2b902c/edilkamin-1.6.0-py3-none-any.whl", hash = "sha256:763709d3213f39282204b29a5b696f9f4ca87a84fb1505e06d9ab95b1d1eb0c6", size = 14831, upload-time = "2025-12-09T14:17:33.802Z" },
+    { url = "https://files.pythonhosted.org/packages/15/02/154a27b33438947cfa26233ffa064cf61292fb291b2783f8d24ae8c41fdf/edilkamin-1.7.0-py3-none-any.whl", hash = "sha256:927164868b671d5a781aa4083abdc2951fb40bc6cb70b6d3a1efeb3e882d8d84", size = 14978, upload-time = "2026-03-09T22:05:34.912Z" },
 ]
 
 [[package]]
@@ -911,7 +911,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "edilkamin", specifier = "==1.6.0" },
+    { name = "edilkamin", specifier = "==1.7.0" },
     { name = "macaddress", specifier = "==2.0.2" },
 ]
 

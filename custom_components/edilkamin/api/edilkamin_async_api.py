@@ -1,33 +1,75 @@
 from collections.abc import Awaitable, Callable
 import logging
+from typing import Any
 
 import edilkamin
 from homeassistant.core import HomeAssistant
+import httpx
 
 _LOGGER = logging.getLogger(__name__)
+
+# HTTP statuses returned by the cloud when the token is no longer accepted
+AUTH_ERROR_STATUSES = (401, 403)
+# Cognito errors meaning the username or password is wrong
+INVALID_CREDENTIALS_ERRORS = ("NotAuthorizedException", "UserNotFoundException")
+
+
+def is_invalid_credentials_error(err: BaseException) -> bool:
+    """Return True when a sign in error means the credentials are wrong."""
+    if type(err).__name__ in INVALID_CREDENTIALS_ERRORS:
+        return True
+    response = getattr(err, "response", None)
+    if isinstance(response, dict):
+        return response.get("Error", {}).get("Code") in INVALID_CREDENTIALS_ERRORS
+    return False
+
+
+async def call_with_reauth(
+    get_token: Callable[[], Awaitable[str]],
+    invalidate_token: Callable[[], None],
+    func: Callable[..., Awaitable[Any]],
+    *args: Any,
+) -> Any:
+    """Call ``func(token, *args)``, signing in again once if the token is refused."""
+    token = await get_token()
+    try:
+        return await func(token, *args)
+    except httpx.HTTPStatusError as err:
+        if err.response.status_code not in AUTH_ERROR_STATUSES:
+            raise
+        _LOGGER.info(
+            "Edilkamin cloud refused the token (HTTP %s), signing in again",
+            err.response.status_code,
+        )
+    invalidate_token()
+    token = await get_token()
+    return await func(token, *args)
 
 
 class EdilkaminAsyncApi:
     """Class to interact with the Edilkamin API."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         mac_address,
         username: str,
         password: str,
         hass: HomeAssistant,
         token_provider: Callable[[], Awaitable[str]] | None = None,
+        token_invalidator: Callable[[], None] | None = None,
     ) -> None:
         """Initialize the class.
 
         ``token_provider`` lets the wrapper reuse an already cached token
-        (e.g. the coordinator's) instead of signing in on every call.
+        (e.g. the coordinator's) instead of signing in on every call, and
+        ``token_invalidator`` drops it when the cloud refuses it.
         """
         self._hass = hass
         self._mac_address = mac_address
         self._username = username
         self._password = password
         self._token_provider = token_provider
+        self._token_invalidator = token_invalidator
 
     def get_mac_address(self):
         """Get the mac address."""
@@ -97,28 +139,36 @@ class EdilkaminAsyncApi:
             edilkamin.sign_in, self._username, self._password
         )
 
+    def invalidate_token(self) -> None:
+        """Drop the shared token so the next call signs in again."""
+        if self._token_invalidator is not None:
+            self._token_invalidator()
+
     async def get_info(self):
         """Get the device information."""
-        token = await self.get_token()
-        return await edilkamin.device_info(token, self._mac_address)
+        return await call_with_reauth(
+            self.get_token,
+            self.invalidate_token,
+            edilkamin.device_info,
+            self._mac_address,
+        )
 
-    async def enable_standby_mode(self):
-        """Set the standby mode."""
-        if not await self.is_auto():
+    async def enable_standby_mode(self, *, is_auto: bool):
+        """Set the standby mode, only allowed in auto mode.
+
+        ``is_auto`` comes from the data already read by the coordinator.
+        """
+        if not is_auto:
             raise NotInRightStateError
 
         await self.execute_command({"name": "standby_mode", "value": True})
 
-    async def disable_standby_mode(self):
-        """Set the standby mode."""
-        if not await self.is_auto():
+    async def disable_standby_mode(self, *, is_auto: bool):
+        """Unset the standby mode, only allowed in auto mode."""
+        if not is_auto:
             raise NotInRightStateError
 
         await self.execute_command({"name": "standby_mode", "value": False})
-
-    async def is_auto(self):
-        """Check if the device is in auto mode."""
-        return (await self.get_info()).get("nvm").get("user_parameters").get("is_auto")
 
     async def enable_auto_mode(self):
         """Set the auto mode."""
@@ -134,9 +184,14 @@ class EdilkaminAsyncApi:
 
     async def execute_command(self, payload: dict) -> str:
         """Execute the command."""
-        token = await self.get_token()
         _LOGGER.debug("Execute command with payload = %s", payload)
-        return await edilkamin.mqtt_command(token, self._mac_address, payload)
+        return await call_with_reauth(
+            self.get_token,
+            self.invalidate_token,
+            edilkamin.mqtt_command,
+            self._mac_address,
+            payload,
+        )
 
 
 class HttpError(Exception):

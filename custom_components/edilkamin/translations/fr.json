@@ -1,7 +1,8 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Appareil déjà configuré"
+      "already_configured": "Appareil déjà configuré",
+      "reauth_successful": "Nouvelle authentification réussie"
     },
     "error": {
       "cannot_connect": "Impossible de se connecter. L'addresse mac (pas de :) est soit invalide ou bien l'appareil n'est pas accessible",
@@ -14,6 +15,13 @@
         "data": {
           "mac_address": "Mac address",
           "username": "Nom d'utilisateur",
+          "password": "Mot de passe"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Nouvelle authentification",
+        "description": "Edilkamin a refusé le mot de passe de {username}. Saisissez le nouveau mot de passe.",
+        "data": {
           "password": "Mot de passe"
         }
       }

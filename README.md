@@ -37,7 +37,7 @@
 
 | Name    | Description |
 | -------- | ------- |
-| `Check configuration`  | Check if the pellet stove is available via api   |
+| `Check configuration`  | Problem when the last cloud read or the last `check` sent by the integration failed. It does not send anything itself   |
 | `Tank`  | Give the information if the pellet stove must be refill or not   |
 
 ### Climate
@@ -55,6 +55,8 @@ The climate entity is able to:
   - manual p4
   - manual p5
 - control the main fan
+- show what the stove is doing (`hvac_action`): heating, preheating (ignition), idle
+  (automatic standby) or off
 
 ### Fan
 The Integration creates the number of fans depending on the pellet stove
@@ -70,12 +72,20 @@ The Integration creates the number of fans depending on the pellet stove
 | `Temperature`  |  The actual temperature   | celsius |
 | `Buffer temperature` | Buffer tank water temperature, when reported by the stove | celsius |
 | `Boiler temperature` | Boiler water temperature, when reported by the stove | celsius |
-| `Fan ${index}`  |  The fan speed  | int |
+| `Fan ${index}`  |  The fan speed (`nvm_timestamp` attribute: when this value was published)  | int |
 | `Nb alarms`  |  The number of alarms | int |
 | `Actual power`  |  The pover of the pellet stove | int |
 | `Operational phase`  |  The phase of the pellet stove | Off, Ignition, On, Shutdown, Cooling, Alarm, Final cleaning, Unknown |
 | `Autonomy`  |  Time remaining before the pellet stove turns off if no pellets are added | minute |
 | `Power ons`  |  Number of times the pellet stove has been turn on | int |
+| `Smoke temperature`  |  Smoke temperature (thermocouple), when reported | celsius |
+| `Alarm code`  |  Diagnostic. Current alarm code (0 = no alarm), when reported | int |
+| `Board temperature`  |  Diagnostic. Motherboard temperature, when reported | celsius |
+| `Hours before service`  |  Diagnostic. Hours left before maintenance, when reported | hour |
+| `NTC probe 1`  |  Diagnostic, disabled by default. NTC probe 1 temperature | celsius |
+| `Operational phase code` / `Sub operational phase`  |  Diagnostic, disabled by default. Raw phase codes | int |
+| `Data age`  |  Diagnostic. Seconds since the stove last published its state | second |
+| `Last stove update`  |  Diagnostic. Time the stove last published its state | timestamp |
 
 ### Switches
 
@@ -86,6 +96,23 @@ The Integration creates the number of fans depending on the pellet stove
 | `Relax mode`    | Switch the relax mode    |
 | `Stand by mode`    | Switch the stand by mode. <br> When the Stand-by function is active, in the automatic and crono modes, the product switches off once the temperature set-point is reached and turns on again when the room temperature drops below the chosen value    |
 
+
+Several stoves can be added: each one is a separate integration entry with its own
+mac address.
+
+## Data freshness
+
+The Edilkamin cloud (`device/info`) returns the last state published by the stove, not
+a live reading. The integration polls it every 15 s and checks how old the data is:
+
+- older than 90 s: it sends a `check` command so the stove publishes again, then reads
+  again 12 s later (at most one `check` per minute);
+- older than 300 s: all entities become unavailable, except the `Data age`,
+  `Last stove update` and `Check configuration` diagnostics.
+
+When you change a setting (target temperature, mode, fan, switches), the new value is
+shown immediately. The integration then asks the stove to publish and refreshes 12 s
+later; the requested value stays displayed until the stove confirms it (60 s at most).
 
 ## Installation
 
@@ -116,6 +143,12 @@ Click on this button:
   7. Enter the mac address of the pellet stove name and click Submit.
 </details>
 
+
+### Password change
+
+If you change your Edilkamin password, Home Assistant shows a "reauthentication
+required" notification for the integration. Click it and enter the new password: the
+integration is reloaded with it, nothing has to be removed.
 
 ## Automations
 
@@ -184,5 +217,14 @@ mode: single
 - Linting/formatting uses Ruff (replacing flake8 and isort). Basic commands:
   - Lint: `uv run ruff check .`
   - Format (optional): `uv run ruff format .`
+- `scripts/measure_check.py` measures, on a real stove, how long it keeps publishing
+  after a `check` command and whether the `nvm` block is refreshed too:
+  ```bash
+  EDILKAMIN_USERNAME=me@example.com EDILKAMIN_MAC=aa:bb:cc:dd:ee:ff \
+    uv run python scripts/measure_check.py --duration 300 --output measure.json
+  ```
+  The password is read from `EDILKAMIN_PASSWORD` or asked interactively; it is never
+  printed, nor is the token. `--skip-check` gives a baseline without check. Run it when
+  the data is older than 90 s, so that no publication window is already in progress.
 
 

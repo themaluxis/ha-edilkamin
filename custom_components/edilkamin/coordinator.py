@@ -1,10 +1,25 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 import logging
+import time
 
-import async_timeout
 import edilkamin
+from homeassistant.core import CALLBACK_TYPE, HassJob
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+import httpx
 import jwt
+
+from .api.edilkamin_async_api import call_with_reauth, is_invalid_credentials_error
+from .const import (
+    CHECK_COOLDOWN,
+    CHECK_DELAY,
+    STALE_AFTER,
+    UNAVAILABLE_AFTER,
+    UPDATE_INTERVAL,
+    UPDATE_TIMEOUT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,13 +33,15 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         username: str,
         password: str,
         mac_address: str,
+        config_entry=None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
-            name="Edilkamin coordinator",
-            update_interval=timedelta(seconds=15),
+            config_entry=config_entry,
+            name=f"Edilkamin coordinator {mac_address}",
+            update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self._username = username
         self._password = password
@@ -33,14 +50,32 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         self._token = None
         self._device_info = {}
 
+        self._stale_after = STALE_AFTER
+        self._check_delay = CHECK_DELAY
+        self._check_cooldown = CHECK_COOLDOWN
+        self._unavailable_after = UNAVAILABLE_AFTER
+        # time.monotonic() of the last "check" command sent, None if never sent
+        self._last_check_sent: float | None = None
+        # Outcome of the last "check" command, None if never sent
+        self.last_check_success: bool | None = None
+        self.last_check_time: datetime | None = None
+        # Cancels the refresh planned after a command, None when nothing planned
+        self._unsub_command_refresh: CALLBACK_TYPE | None = None
+
     async def refresh_token(self) -> str:
         """Refresh the token only if expired."""
         _LOGGER.debug("Refreshing token")
         if self._token is None or self.is_token_expired(self._token):
             _LOGGER.debug("Token is expired or None, signing in again")
-            self._token = await self.hass.async_add_executor_job(
-                edilkamin.sign_in, self._username, self._password
-            )
+            try:
+                self._token = await self.hass.async_add_executor_job(
+                    edilkamin.sign_in, self._username, self._password
+                )
+            except Exception as err:
+                if is_invalid_credentials_error(err):
+                    msg = "Edilkamin credentials are no longer valid"
+                    raise ConfigEntryAuthFailed(msg) from err
+                raise
             _LOGGER.debug("Token refreshed")
         else:
             _LOGGER.debug("Token is still valid, using existing one")
@@ -62,24 +97,157 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return True
 
-    async def update_device_information(self) -> None:
+    def invalidate_token(self) -> None:
+        """Drop the cached token, e.g. after the cloud refused it."""
+        self._token = None
+
+    async def _async_call_api(self, func, *args):
+        """Call an edilkamin function, signing in again once on HTTP 401/403."""
+        return await call_with_reauth(
+            self.refresh_token, self.invalidate_token, func, self._mac_address, *args
+        )
+
+    async def update_device_information(self) -> dict:
         """Get the latest data and update the relevant Entity attributes."""
-        self._token = await self.refresh_token()
-        return await edilkamin.device_info(self._token, self._mac_address)
+        return await self._async_call_api(edilkamin.device_info)
 
     async def _async_update_data(self):
-        """Fetch data from the API."""
+        """Fetch data from the API, asking the stove to publish when stale."""
         try:
-            # Note: asyncio.TimeoutError and aiohttp.ClientError are already
-            # handled by the data update coordinator.
-            async with async_timeout.timeout(10):
-                self._device_info = await self.update_device_information()
-                _LOGGER.debug("Data updated successfully")
-                _LOGGER.debug(self._device_info)
-                return self._device_info
+            async with asyncio.timeout(UPDATE_TIMEOUT):
+                data = await self.update_device_information()
+                age = self.compute_data_age(data)
+                if age is not None and age > self._stale_after:
+                    data = await self._async_refresh_stale_data(data, age)
+        except ConfigEntryAuthFailed:
+            raise
+        except httpx.HTTPStatusError as e:
+            msg = f"Edilkamin cloud answered HTTP {e.response.status_code}"
+            raise UpdateFailed(msg) from e
+        except (httpx.RequestError, TimeoutError) as e:
+            msg = f"Cannot reach the Edilkamin cloud: {type(e).__name__}"
+            raise UpdateFailed(msg) from e
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            msg = f"Unexpected response format from the Edilkamin cloud: {e!r}"
+            raise UpdateFailed(msg) from e
         except Exception as e:
             msg = "Error communicating with API"
             raise UpdateFailed(msg) from e
+
+        if not isinstance(data, dict):
+            msg = "Unexpected response format from the Edilkamin cloud"
+            raise UpdateFailed(msg)
+        self._device_info = data
+        _LOGGER.debug("Data updated successfully")
+        _LOGGER.debug(self._device_info)
+        return self._device_info
+
+    async def _async_refresh_stale_data(self, data: dict, age: float) -> dict:
+        """Send a check and read device/info again, within the check cooldown."""
+        if not self.can_send_check():
+            _LOGGER.debug(
+                "Data is %.0f s old but a check was sent less than %s s ago",
+                age,
+                self._check_cooldown,
+            )
+            return data
+
+        _LOGGER.debug("Data is %.0f s old, asking the stove to publish", age)
+        if not await self.async_send_check():
+            return data
+
+        await asyncio.sleep(self._check_delay)
+        data = await self.update_device_information()
+        age = self.compute_data_age(data)
+        if age is not None and age > self._stale_after:
+            _LOGGER.warning(
+                "Edilkamin cloud data is still %.0f s old after a check command",
+                age,
+            )
+        return data
+
+    async def async_refresh_after_command(self) -> None:
+        """Make the stove publish after a command, then refresh a bit later.
+
+        device/info only returns the state last published by the stove, so an
+        immediate refresh would read the state from before the command. Commands
+        sent close together re-arm the same timer: a burst of commands gives a
+        single delayed refresh.
+        """
+        if self.can_send_check():
+            await self.async_send_check()
+
+        if self._unsub_command_refresh is not None:
+            self._unsub_command_refresh()
+        self._unsub_command_refresh = async_call_later(
+            self.hass,
+            self._check_delay,
+            HassJob(self._async_command_refresh, cancel_on_shutdown=True),
+        )
+
+    async def _async_command_refresh(self, _now: datetime) -> None:
+        """Refresh planned by async_refresh_after_command."""
+        self._unsub_command_refresh = None
+        await self.async_refresh()
+
+    async def async_shutdown(self) -> None:
+        """Cancel the planned refresh, then stop the coordinator."""
+        if self._unsub_command_refresh is not None:
+            self._unsub_command_refresh()
+            self._unsub_command_refresh = None
+        await super().async_shutdown()
+
+    def can_send_check(self) -> bool:
+        """Return True when the check cooldown is over."""
+        return (
+            self._last_check_sent is None
+            or time.monotonic() - self._last_check_sent >= self._check_cooldown
+        )
+
+    async def async_send_check(self) -> bool:
+        """Ask the stove to publish its state again. Return True on success."""
+        self._last_check_sent = time.monotonic()
+        self.last_check_time = datetime.now(tz=UTC)
+        try:
+            await self._async_call_api(edilkamin.mqtt_command, {"name": "check"})
+        except httpx.HTTPError as err:
+            self.last_check_success = False
+            _LOGGER.warning("Check command to the stove failed: %s", err)
+            return False
+
+        self.last_check_success = True
+        return True
+
+    @staticmethod
+    def get_status_timestamp_from(
+        data: dict | None, block: str = "status"
+    ) -> float | None:
+        """Return the timestamp of a block ("status" or "nvm"), in seconds."""
+        timestamp = ((data or {}).get(block) or {}).get("timestamp")
+        if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+            return None
+        # status.timestamp is in milliseconds, accept seconds just in case
+        return timestamp / 1000 if timestamp > 1e11 else float(timestamp)
+
+    def compute_data_age(self, data: dict | None) -> float | None:
+        """Return the age in seconds of a device/info payload."""
+        timestamp = self.get_status_timestamp_from(data)
+        if timestamp is None:
+            return None
+        return time.time() - timestamp
+
+    def get_status_timestamp(self, block: str = "status") -> float | None:
+        """Return the time the stove last published a block, in seconds."""
+        return self.get_status_timestamp_from(self._device_info, block)
+
+    def get_data_age(self) -> float | None:
+        """Return how old the current data is, in seconds."""
+        return self.compute_data_age(self._device_info)
+
+    def is_data_too_old(self) -> bool:
+        """Return True when entities should be marked unavailable."""
+        age = self.get_data_age()
+        return age is not None and age > self._unavailable_after
 
     def get_token(self) -> str:
         """Return the current token."""
@@ -88,6 +256,15 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
     def get_mac_address(self) -> str:
         """Return the MAC address."""
         return self._mac_address
+
+    def get_status_value(self, *path: str):
+        """Return a value of the status block by its path, None when missing."""
+        value = self._device_info.get("status")
+        for key in path:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
+        return value
 
     def get_temperatures(self) -> dict:
         """Get the temperatures mapping reported by the device."""
