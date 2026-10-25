@@ -5,11 +5,13 @@ import time
 
 import edilkamin
 from homeassistant.core import CALLBACK_TYPE, HassJob
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 import httpx
 import jwt
 
+from .api.edilkamin_async_api import call_with_reauth, is_invalid_credentials_error
 from .const import (
     CHECK_COOLDOWN,
     CHECK_DELAY,
@@ -65,9 +67,15 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Refreshing token")
         if self._token is None or self.is_token_expired(self._token):
             _LOGGER.debug("Token is expired or None, signing in again")
-            self._token = await self.hass.async_add_executor_job(
-                edilkamin.sign_in, self._username, self._password
-            )
+            try:
+                self._token = await self.hass.async_add_executor_job(
+                    edilkamin.sign_in, self._username, self._password
+                )
+            except Exception as err:
+                if is_invalid_credentials_error(err):
+                    msg = "Edilkamin credentials are no longer valid"
+                    raise ConfigEntryAuthFailed(msg) from err
+                raise
             _LOGGER.debug("Token refreshed")
         else:
             _LOGGER.debug("Token is still valid, using existing one")
@@ -89,10 +97,19 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return True
 
-    async def update_device_information(self) -> None:
+    def invalidate_token(self) -> None:
+        """Drop the cached token, e.g. after the cloud refused it."""
+        self._token = None
+
+    async def _async_call_api(self, func, *args):
+        """Call an edilkamin function, signing in again once on HTTP 401/403."""
+        return await call_with_reauth(
+            self.refresh_token, self.invalidate_token, func, self._mac_address, *args
+        )
+
+    async def update_device_information(self) -> dict:
         """Get the latest data and update the relevant Entity attributes."""
-        self._token = await self.refresh_token()
-        return await edilkamin.device_info(self._token, self._mac_address)
+        return await self._async_call_api(edilkamin.device_info)
 
     async def _async_update_data(self):
         """Fetch data from the API, asking the stove to publish when stale."""
@@ -102,10 +119,24 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
                 age = self.compute_data_age(data)
                 if age is not None and age > self._stale_after:
                     data = await self._async_refresh_stale_data(data, age)
+        except ConfigEntryAuthFailed:
+            raise
+        except httpx.HTTPStatusError as e:
+            msg = f"Edilkamin cloud answered HTTP {e.response.status_code}"
+            raise UpdateFailed(msg) from e
+        except (httpx.RequestError, TimeoutError) as e:
+            msg = f"Cannot reach the Edilkamin cloud: {type(e).__name__}"
+            raise UpdateFailed(msg) from e
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            msg = f"Unexpected response format from the Edilkamin cloud: {e!r}"
+            raise UpdateFailed(msg) from e
         except Exception as e:
             msg = "Error communicating with API"
             raise UpdateFailed(msg) from e
 
+        if not isinstance(data, dict):
+            msg = "Unexpected response format from the Edilkamin cloud"
+            raise UpdateFailed(msg)
         self._device_info = data
         _LOGGER.debug("Data updated successfully")
         _LOGGER.debug(self._device_info)
@@ -178,8 +209,7 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         self._last_check_sent = time.monotonic()
         self.last_check_time = datetime.now(tz=UTC)
         try:
-            token = await self.refresh_token()
-            await edilkamin.mqtt_command(token, self._mac_address, {"name": "check"})
+            await self._async_call_api(edilkamin.mqtt_command, {"name": "check"})
         except httpx.HTTPError as err:
             self.last_check_success = False
             _LOGGER.warning("Check command to the stove failed: %s", err)

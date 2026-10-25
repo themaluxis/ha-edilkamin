@@ -48,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EdilkaminConfigEntry) ->
         password=password,
         hass=hass,
         token_provider=coordinator.refresh_token,
+        token_invalidator=coordinator.invalidate_token,
     )
     entry.runtime_data = EdilkaminData(coordinator=coordinator, api=api)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

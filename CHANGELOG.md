@@ -30,7 +30,20 @@ All notable changes to this integration are documented in this file.
 - Thresholds (`STALE_AFTER`, `CHECK_DELAY`, `CHECK_COOLDOWN`, `UNAVAILABLE_AFTER`)
   are constants in `const.py`.
 
+- Reauthentication: when the Edilkamin password changes, Home Assistant shows a
+  "reauthentication required" notification; entering the new password restores the
+  integration without removing it.
+
 ### Changed
+
+- When the cloud answers HTTP 401 or 403 (token revoked server side), the integration
+  drops its token, signs in again and retries once, for both `device/info` and
+  commands. Invalid credentials raise `ConfigEntryAuthFailed`.
+- Errors are told apart in the logs: network (cannot reach the cloud), HTTP status,
+  authentication, and unexpected response format. Tokens and passwords are never
+  logged.
+- Turning standby on or off sends a single `mqtt/command`: auto mode is checked on
+  the data already read by the coordinator instead of an extra `device/info` call.
 
 - **Binary sensor `Check configuration` no longer sends anything.** It used to be
   polled by Home Assistant every 30 s and send a `check` command on each poll; that

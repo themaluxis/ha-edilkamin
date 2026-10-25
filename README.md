@@ -136,6 +136,12 @@ Click on this button:
 </details>
 
 
+### Password change
+
+If you change your Edilkamin password, Home Assistant shows a "reauthentication
+required" notification for the integration. Click it and enter the new password: the
+integration is reloaded with it, nothing has to be removed.
+
 ## Automations
 
 ### Send notification when the tank is empty

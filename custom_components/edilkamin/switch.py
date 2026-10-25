@@ -171,11 +171,15 @@ class EdilkaminStandByModeSwitch(EdilkaminEntity, SwitchEntity):
     async def async_turn_on(self, **_kwargs) -> None:
         """Turn the entity on."""
         await self._async_send_command(
-            self._api.enable_standby_mode(), block="nvm", _attr_is_on=True
+            self._api.enable_standby_mode(is_auto=self.coordinator.is_auto()),
+            block="nvm",
+            _attr_is_on=True,
         )
 
     async def async_turn_off(self, **_kwargs):
         """Turn the entity off."""
         await self._async_send_command(
-            self._api.disable_standby_mode(), block="nvm", _attr_is_on=False
+            self._api.disable_standby_mode(is_auto=self.coordinator.is_auto()),
+            block="nvm",
+            _attr_is_on=False,
         )

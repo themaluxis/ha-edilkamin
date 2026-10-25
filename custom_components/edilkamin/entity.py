@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -90,6 +90,10 @@ class EdilkaminEntity(CoordinatorEntity):
         try:
             await command
         except EdilkaminApiError as err:
+            raise HomeAssistantError(str(err)) from err
+        except ConfigEntryAuthFailed as err:
+            if self.coordinator.config_entry is not None:
+                self.coordinator.config_entry.async_start_reauth(self.hass)
             raise HomeAssistantError(str(err)) from err
         except Exception as err:
             _LOGGER.debug("Edilkamin command failed", exc_info=True)
