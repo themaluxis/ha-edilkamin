@@ -7,25 +7,31 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.edilkamin.api.edilkamin_async_api import (
     EdilkaminAsyncApi,
     NotInRightStateError,
 )
 
-from .const import DOMAIN
+from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .data import EdilkaminConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_devices):
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
+    async_add_devices: AddEntitiesCallback,
+):
     """Add sensors for passed config_entry in HA."""
-    async_api = hass.data[DOMAIN][config_entry.entry_id]
-    coordinator = hass.data[DOMAIN]["coordinator"]
+    async_api = config_entry.runtime_data.api
+    coordinator = config_entry.runtime_data.coordinator
 
     async_add_devices(
         [
@@ -37,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_devices
     )
 
 
-class EdilkaminAirekareSwitch(CoordinatorEntity, SwitchEntity):
+class EdilkaminAirekareSwitch(EdilkaminEntity, SwitchEntity):
     """Representation of a Sensor."""
 
     def __init__(self, api: EdilkaminAsyncApi, coordinator) -> None:
@@ -45,11 +51,9 @@ class EdilkaminAirekareSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._state = None
         self._api = api
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:air-filter"
         self._attr_name = "Airekare"
 
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def is_on(self):
@@ -72,7 +76,7 @@ class EdilkaminAirekareSwitch(CoordinatorEntity, SwitchEntity):
         await self.coordinator.async_refresh()
 
 
-class EdilkaminRelaxSwitch(CoordinatorEntity, SwitchEntity):
+class EdilkaminRelaxSwitch(EdilkaminEntity, SwitchEntity):
     """Representation of a Sensor."""
 
     def __init__(self, api: EdilkaminAsyncApi, coordinator) -> None:
@@ -80,11 +84,9 @@ class EdilkaminRelaxSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._state = None
         self._api = api
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:weather-night"
 
         self._attr_name = "Relax mode"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def is_on(self):
@@ -107,7 +109,7 @@ class EdilkaminRelaxSwitch(CoordinatorEntity, SwitchEntity):
         await self.coordinator.async_refresh()
 
 
-class EdilkaminChronoModeSwitch(CoordinatorEntity, SwitchEntity):
+class EdilkaminChronoModeSwitch(EdilkaminEntity, SwitchEntity):
     """Representation of a Sensor."""
 
     def __init__(self, api: EdilkaminAsyncApi, coordinator) -> None:
@@ -115,11 +117,9 @@ class EdilkaminChronoModeSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._state = None
         self._api = api
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:calendar-clock"
 
         self._attr_name = "Chrono mode"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def is_on(self):
@@ -142,7 +142,7 @@ class EdilkaminChronoModeSwitch(CoordinatorEntity, SwitchEntity):
         await self.coordinator.async_refresh()
 
 
-class EdilkaminStandByModeSwitch(CoordinatorEntity, SwitchEntity):
+class EdilkaminStandByModeSwitch(EdilkaminEntity, SwitchEntity):
     """Representation of a Sensor."""
 
     def __init__(self, api: EdilkaminAsyncApi, coordinator) -> None:
@@ -150,11 +150,9 @@ class EdilkaminStandByModeSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._state = None
         self._api = api
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:pause-circle-outline"
 
         self._attr_name = "Stand by mode"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
         # standby_waiting_time --> temps d'attente standby
 

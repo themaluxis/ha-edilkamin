@@ -12,14 +12,14 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfTemperature
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .data import EdilkaminConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,13 +36,13 @@ OPERATIONAL_STATES = {
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    _config_entry: ConfigEntry,
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ):
     """Add sensors for passed config_entry in HA."""
 
-    coordinator = hass.data[DOMAIN]["coordinator"]
+    coordinator = config_entry.runtime_data.coordinator
 
     sensors = [
         EdilkaminTemperatureSensor(coordinator),
@@ -73,17 +73,15 @@ async def async_setup_entry(
     async_add_devices(sensors)
 
 
-class EdilkaminTemperatureSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminTemperatureSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Temperature"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:thermometer"
 
     @property
@@ -115,19 +113,17 @@ class EdilkaminTemperatureSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminFanSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminFanSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator, index: int) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:fan"
         self._index = index
 
         self._attr_name = f"Fan {index}"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -150,19 +146,17 @@ class EdilkaminFanSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminAlarmSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminAlarmSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:alert"
         self._attributes: dict[str, Any] = {}
 
         self._attr_name = "Nb alarms"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -206,17 +200,15 @@ class EdilkaminAlarmSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminActualPowerSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminActualPowerSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Actual power"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:flash"
 
     @property
@@ -245,20 +237,18 @@ class EdilkaminActualPowerSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminOperationalSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminOperationalSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:eye"
         self._attributes: dict[str, Any] = {}
 
         self._attr_name = "Operational phase"
         self._attr_options = list(OPERATIONAL_STATES.values())
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def device_class(self):
@@ -285,17 +275,15 @@ class EdilkaminOperationalSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminAutonomySensor(CoordinatorEntity, SensorEntity):
+class EdilkaminAutonomySensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Autonomy"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:timer"
 
         additional_att = {
@@ -335,17 +323,15 @@ class EdilkaminAutonomySensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminPowerOnsSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminPowerOnsSensor(EdilkaminEntity, SensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
 
         self._attr_name = "Power ons"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
         self._attr_icon = "mdi:counter"
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -365,7 +351,7 @@ class EdilkaminPowerOnsSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminWaterTemperatureSensor(CoordinatorEntity, SensorEntity):
+class EdilkaminWaterTemperatureSensor(EdilkaminEntity, SensorEntity):
     """A hydronic temperature from the existing cloud coordinator."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -377,9 +363,7 @@ class EdilkaminWaterTemperatureSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._temperature_key = key
         self._attr_name = name
-        mac_address = coordinator.get_mac_address()
-        self._attr_unique_id = f"{mac_address}_{key}_temperature"
-        self._attr_device_info = {"identifiers": {(DOMAIN, mac_address)}}
+        self._attr_unique_id = f"{self._mac_address}_{key}_temperature"
 
     @property
     def native_value(self) -> float | None:

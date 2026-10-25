@@ -14,14 +14,16 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from custom_components.edilkamin.api.edilkamin_async_api import EdilkaminAsyncApi
+
+    from .data import EdilkaminConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,16 +52,20 @@ PRESET_MODE_TO_POWER = {
 }
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_devices):
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
+    async_add_devices: AddEntitiesCallback,
+):
     """Add sensors for passed config_entry in HA."""
 
-    async_api = hass.data[DOMAIN][config_entry.entry_id]
-    coordinator = hass.data[DOMAIN]["coordinator"]
+    async_api = config_entry.runtime_data.api
+    coordinator = config_entry.runtime_data.coordinator
 
     async_add_devices([EdilkaminClimateEntity(async_api, coordinator)])
 
 
-class EdilkaminClimateEntity(CoordinatorEntity, ClimateEntity):
+class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
     """Representation of a Climate."""
 
     def __init__(self, api: EdilkaminAsyncApi, coordinator) -> None:
@@ -77,15 +83,14 @@ class EdilkaminClimateEntity(CoordinatorEntity, ClimateEntity):
         self._attr_hvac_modes = CLIMATE_HVAC_MODE_MANAGED
         self._attr_hvac_mode = HVACMode.OFF  # default hvac mode
 
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_max_temp = 24
         self._attr_min_temp = 14
 
         self._attr_preset_modes = PRESET_MODES
         self._attr_preset_mode = PRESET_AUTO
 
-        self._attr_name = "Edilkamin climate"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
+        # Main feature of the device: the entity takes the device name
+        self._attr_name = None
 
     @property
     def unique_id(self):

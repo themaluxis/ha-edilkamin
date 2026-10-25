@@ -87,6 +87,9 @@ The Integration creates the number of fans depending on the pellet stove
 | `Stand by mode`    | Switch the stand by mode. <br> When the Stand-by function is active, in the automatic and crono modes, the product switches off once the temperature set-point is reached and turns on again when the room temperature drops below the chosen value    |
 
 
+Several stoves can be added: each one is a separate integration entry with its own
+mac address.
+
 ## Installation
 
 Click on this button:

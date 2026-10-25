@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import TYPE_CHECKING
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.percentage import (
     int_states_in_range,
     percentage_to_ranged_value,
@@ -18,7 +18,13 @@ from custom_components.edilkamin.api.edilkamin_async_api import (
     HttpError,
 )
 
-from .const import DOMAIN
+from .entity import EdilkaminEntity
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .data import EdilkaminConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,10 +33,14 @@ SPEED_RANGE = (1, 5)  # away is not included in speeds and instead mapped to off
 PRESET_MODE_AUTO = "Auto"
 PRESET_MODES = [PRESET_MODE_AUTO]
 
-async def async_setup_entry(hass, config_entry, async_add_devices):
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
+    async_add_devices: AddEntitiesCallback,
+):
     """Add sensors for passed config_entry in HA."""
-    async_api = hass.data[DOMAIN][config_entry.entry_id]
-    coordinator = hass.data[DOMAIN]["coordinator"]
+    async_api = config_entry.runtime_data.api
+    coordinator = config_entry.runtime_data.coordinator
 
     nb_fans = coordinator.get_nb_fans()
 
@@ -45,20 +55,18 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
     async_add_devices(fans)
 
 
-class EdilkaminFan(CoordinatorEntity, FanEntity):
+class EdilkaminFan(EdilkaminEntity, FanEntity):
     """Representation of a Fan."""
 
     def __init__(self, api: EdilkaminAsyncApi, index: int, coordinator) -> None:
         """Initialize the fan."""
         super().__init__(coordinator)
         self._api = api
-        self._mac_address = self.coordinator.get_mac_address()
         self._index = index
         self._current_speed = None
         self._current_state = False
 
         self._attr_name = f"Fan {index}"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def unique_id(self):

@@ -9,22 +9,32 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN
+from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
     from custom_components.edilkamin.api.edilkamin_async_api import (
         EdilkaminAsyncApi,
     )
 
+    from .data import EdilkaminConfigEntry
+
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass, config_entry, async_add_devices):
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    config_entry: EdilkaminConfigEntry,
+    async_add_devices: AddEntitiesCallback,
+):
     """Add sensors for passed config_entry in HA."""
-    coordinator = hass.data[DOMAIN]["coordinator"]
-    async_api = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data.coordinator
+    async_api = config_entry.runtime_data.api
 
     async_add_devices(
         [
@@ -34,18 +44,16 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
     )
 
 
-class EdilkaminTankBinarySensor(CoordinatorEntity, BinarySensorEntity):
+class EdilkaminTankBinarySensor(EdilkaminEntity, BinarySensorEntity):
     """Representation of a Sensor."""
 
     def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._state = None
-        self._mac_address = self.coordinator.get_mac_address()
         self._attr_icon = "mdi:storage-tank"
 
         self._attr_name = "Tank"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
 
     @property
     def is_on(self):
@@ -71,6 +79,8 @@ class EdilkaminTankBinarySensor(CoordinatorEntity, BinarySensorEntity):
 class EdilkaminCheckBinarySensor(BinarySensorEntity):
     """Representation of a Sensor."""
 
+    _attr_has_entity_name = True
+
     def __init__(self, api: EdilkaminAsyncApi) -> None:
         """Initialize the sensor."""
         self._state = None
@@ -78,7 +88,7 @@ class EdilkaminCheckBinarySensor(BinarySensorEntity):
         self._mac_address = self._api.get_mac_address()
 
         self._attr_name = "Check configuration"
-        self._attr_device_info = {"identifiers": {("edilkamin", self._mac_address)}}
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, self._mac_address)})
         self._attr_icon = "mdi:check-circle"
 
     @property

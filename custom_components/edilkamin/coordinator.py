@@ -18,12 +18,14 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         username: str,
         password: str,
         mac_address: str,
+        config_entry=None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
-            name="Edilkamin coordinator",
+            config_entry=config_entry,
+            name=f"Edilkamin coordinator {mac_address}",
             update_interval=timedelta(seconds=15),
         )
         self._username = username
