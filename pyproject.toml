@@ -57,6 +57,10 @@ ignore = [
     "COM812",  # Avoid conflict with formatter
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Standalone command line tools: printing is their output, not a package
+"scripts/*" = ["T201", "INP001"]
+
 [tool.ruff.lint.isort]
 # Carry over isort behavior
 combine-as-imports = true

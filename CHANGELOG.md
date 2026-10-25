@@ -45,6 +45,9 @@ All notable changes to this integration are documented in this file.
 - Sensors read from `nvm` (`Fan N`, `Nb alarms`, `Power ons`) expose an
   `nvm_timestamp` attribute, as this block can be older than `status`.
 
+- `scripts/measure_check.py`: development tool measuring the publication window after a
+  `check` and whether `nvm` is refreshed by it (see README, Development notes).
+
 ### Changed
 
 - When the cloud answers HTTP 401 or 403 (token revoked server side), the integration

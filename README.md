@@ -217,5 +217,14 @@ mode: single
 - Linting/formatting uses Ruff (replacing flake8 and isort). Basic commands:
   - Lint: `uv run ruff check .`
   - Format (optional): `uv run ruff format .`
+- `scripts/measure_check.py` measures, on a real stove, how long it keeps publishing
+  after a `check` command and whether the `nvm` block is refreshed too:
+  ```bash
+  EDILKAMIN_USERNAME=me@example.com EDILKAMIN_MAC=aa:bb:cc:dd:ee:ff \
+    uv run python scripts/measure_check.py --duration 300 --output measure.json
+  ```
+  The password is read from `EDILKAMIN_PASSWORD` or asked interactively; it is never
+  printed, nor is the token. `--skip-check` gives a baseline without check. Run it when
+  the data is older than 90 s, so that no publication window is already in progress.
 
 
