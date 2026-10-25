@@ -4,8 +4,30 @@ All notable changes to this integration are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Data freshness is now driven by the coordinator. On every poll (15 s, like the
+  official app) it measures the age of `status.timestamp`. When the data is older than
+  90 s it sends a `check` command, waits 12 s and reads `device/info` again. At most one
+  `check` is sent per 60 s. If the data is still stale after a check, a warning with the
+  measured age is logged and the data is kept.
+- Diagnostic sensors `Data age` (seconds) and `Last stove update` (timestamp of the
+  last status published by the stove). Both stay available when the cloud is frozen.
+- All other entities become unavailable when the stove has not published for more
+  than 300 s, instead of silently showing frozen values.
+- Thresholds (`STALE_AFTER`, `CHECK_DELAY`, `CHECK_COOLDOWN`, `UNAVAILABLE_AFTER`)
+  are constants in `const.py`.
+
 ### Changed
 
+- **Binary sensor `Check configuration` no longer sends anything.** It used to be
+  polled by Home Assistant every 30 s and send a `check` command on each poll; that
+  side effect was the only thing keeping the data fresh, and disabling the entity froze
+  every value without any warning. It now reflects the coordinator instead (no own
+  polling): it is "problem" when the last cloud read or the last `check` sent by the
+  coordinator failed. Its `unique_id` and `entity_id` are unchanged.
+- The coordinator timeout is raised from 10 s to 30 s to absorb the wait after a
+  `check`.
 - Coordinator and API are now stored per config entry (`entry.runtime_data`) instead
   of a global `hass.data[DOMAIN]["coordinator"]` key: several stoves can be configured
   side by side without overwriting each other.

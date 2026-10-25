@@ -124,7 +124,7 @@ def test_unique_ids_are_preserved():
 
     entities = [
         EdilkaminTankBinarySensor(coordinator),
-        EdilkaminCheckBinarySensor(api),
+        EdilkaminCheckBinarySensor(coordinator),
         EdilkaminClimateEntity(api, coordinator),
         EdilkaminFan(api=api, index=1, coordinator=coordinator),
         EdilkaminFan(api=api, index=2, coordinator=coordinator),

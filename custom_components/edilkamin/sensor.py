@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
 
 from .entity import EdilkaminEntity
 
@@ -52,6 +53,8 @@ async def async_setup_entry(
         EdilkaminOperationalSensor(coordinator),
         EdilkaminAutonomySensor(coordinator),
         EdilkaminPowerOnsSensor(coordinator),
+        EdilkaminDataAgeSensor(coordinator),
+        EdilkaminLastUpdateSensor(coordinator),
     ]
 
     # "puffer" is the Edilkamin API key for the buffer tank water temperature.
@@ -375,3 +378,51 @@ class EdilkaminWaterTemperatureSensor(EdilkaminEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return super().available and self.native_value is not None
+
+
+class EdilkaminDataAgeSensor(EdilkaminEntity, SensorEntity):
+    """Age of the data published by the stove (now - status.timestamp)."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-sand"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_name = "Data age"
+        self._attr_unique_id = f"{self._mac_address}_data_age"
+
+    @property
+    def available(self) -> bool:
+        """Stay available to show how old the data is."""
+        return True
+
+    @property
+    def native_value(self) -> int | None:
+        age = self.coordinator.get_data_age()
+        return None if age is None else round(age)
+
+
+class EdilkaminLastUpdateSensor(EdilkaminEntity, SensorEntity):
+    """Time the stove last published its status (status.timestamp)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:update"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_name = "Last stove update"
+        self._attr_unique_id = f"{self._mac_address}_last_stove_update"
+
+    @property
+    def available(self) -> bool:
+        """Stay available to show when the stove last published."""
+        return True
+
+    @property
+    def native_value(self) -> datetime | None:
+        timestamp = self.coordinator.get_status_timestamp()
+        return None if timestamp is None else datetime.fromtimestamp(timestamp, UTC)

@@ -26,3 +26,8 @@ class EdilkaminEntity(CoordinatorEntity):
             name="Edilkamin Stove",
             suggested_area="Living Room",
         )
+
+    @property
+    def available(self) -> bool:
+        """Return False when the cloud data is too old to be trusted."""
+        return super().available and not self.coordinator.is_data_too_old()

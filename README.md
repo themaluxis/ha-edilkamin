@@ -37,7 +37,7 @@
 
 | Name    | Description |
 | -------- | ------- |
-| `Check configuration`  | Check if the pellet stove is available via api   |
+| `Check configuration`  | Problem when the last cloud read or the last `check` sent by the integration failed. It does not send anything itself   |
 | `Tank`  | Give the information if the pellet stove must be refill or not   |
 
 ### Climate
@@ -76,6 +76,8 @@ The Integration creates the number of fans depending on the pellet stove
 | `Operational phase`  |  The phase of the pellet stove | Off, Ignition, On, Shutdown, Cooling, Alarm, Final cleaning, Unknown |
 | `Autonomy`  |  Time remaining before the pellet stove turns off if no pellets are added | minute |
 | `Power ons`  |  Number of times the pellet stove has been turn on | int |
+| `Data age`  |  Diagnostic. Seconds since the stove last published its state | second |
+| `Last stove update`  |  Diagnostic. Time the stove last published its state | timestamp |
 
 ### Switches
 
@@ -89,6 +91,16 @@ The Integration creates the number of fans depending on the pellet stove
 
 Several stoves can be added: each one is a separate integration entry with its own
 mac address.
+
+## Data freshness
+
+The Edilkamin cloud (`device/info`) returns the last state published by the stove, not
+a live reading. The integration polls it every 15 s and checks how old the data is:
+
+- older than 90 s: it sends a `check` command so the stove publishes again, then reads
+  again 12 s later (at most one `check` per minute);
+- older than 300 s: all entities become unavailable, except the `Data age`,
+  `Last stove update` and `Check configuration` diagnostics.
 
 ## Installation
 

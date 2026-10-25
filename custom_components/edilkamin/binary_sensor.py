@@ -9,18 +9,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN
 from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-    from custom_components.edilkamin.api.edilkamin_async_api import (
-        EdilkaminAsyncApi,
-    )
 
     from .data import EdilkaminConfigEntry
 
@@ -34,12 +28,11 @@ async def async_setup_entry(
 ):
     """Add sensors for passed config_entry in HA."""
     coordinator = config_entry.runtime_data.coordinator
-    async_api = config_entry.runtime_data.api
 
     async_add_devices(
         [
             EdilkaminTankBinarySensor(coordinator),
-            EdilkaminCheckBinarySensor(async_api),
+            EdilkaminCheckBinarySensor(coordinator),
         ]
     )
 
@@ -76,43 +69,39 @@ class EdilkaminTankBinarySensor(EdilkaminEntity, BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class EdilkaminCheckBinarySensor(BinarySensorEntity):
-    """Representation of a Sensor."""
+class EdilkaminCheckBinarySensor(EdilkaminEntity, BinarySensorEntity):
+    """Problem sensor reflecting the cloud reads and checks of the coordinator.
 
-    _attr_has_entity_name = True
+    It sends nothing by itself: the coordinator decides when a check is needed.
+    """
 
-    def __init__(self, api: EdilkaminAsyncApi) -> None:
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:check-circle"
+
+    def __init__(self, coordinator) -> None:
         """Initialize the sensor."""
-        self._state = None
-        self._api = api
-        self._mac_address = self._api.get_mac_address()
-
+        super().__init__(coordinator)
         self._attr_name = "Check configuration"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, self._mac_address)})
-        self._attr_icon = "mdi:check-circle"
+        self._attr_unique_id = f"{self._mac_address}_check_binary_sensor"
 
     @property
-    def is_on(self):
-        """Return True if the binary sensor is on."""
-        return self._state
+    def available(self) -> bool:
+        """Stay available: this sensor reports the cloud problems."""
+        return True
 
     @property
-    def device_class(self):
-        """Return the class of the binary sensor."""
-        return BinarySensorDeviceClass.PROBLEM
+    def is_on(self) -> bool:
+        """Return True when the last read or the last check failed."""
+        return (
+            not self.coordinator.last_update_success
+            or self.coordinator.last_check_success is False
+        )
 
     @property
-    def unique_id(self):
-        """Return a unique_id for this entity."""
-        return f"{self._mac_address}_check_binary_sensor"
-
-    async def async_update(self) -> None:
-        """Fetch new state data for the sensor."""
-        try:
-            await self._api.check()
-            self._state = False
-            self.async_write_ha_state()
-        except Exception:
-            self._state = True
-            self.async_write_ha_state()
-            _LOGGER.exception("Exception occurred during check configuration")
+    def extra_state_attributes(self) -> dict:
+        """Return the details of the last check."""
+        last_check_time = self.coordinator.last_check_time
+        return {
+            "last_check": last_check_time.isoformat() if last_check_time else None,
+            "last_check_success": self.coordinator.last_check_success,
+        }

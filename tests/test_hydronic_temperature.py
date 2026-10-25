@@ -20,6 +20,7 @@ def mock_coordinator():
     coordinator.get_mac_address = Mock(return_value="00:11:22:33:44:55")
     coordinator.get_nb_fans = Mock(return_value=1)
     coordinator.async_add_listener = Mock()
+    coordinator.is_data_too_old = Mock(return_value=False)
     coordinator.last_update_success = True
     return coordinator
 
