@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 import time
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
@@ -23,6 +25,83 @@ if TYPE_CHECKING:
     from .data import EdilkaminConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EdilkaminStatusSensorDescription(SensorEntityDescription):
+    """A sensor reading one value of the status block of device/info."""
+
+    path: tuple[str, ...]
+
+
+STATUS_SENSORS: tuple[EdilkaminStatusSensorDescription, ...] = (
+    EdilkaminStatusSensorDescription(
+        key="smoke_temperature",
+        name="Smoke temperature",
+        path=("temperatures", "thermocouple"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:thermometer-high",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="alarm_code",
+        name="Alarm code",
+        path=("state", "alarm_type"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:alert-circle-outline",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="board_temperature",
+        name="Board temperature",
+        path=("temperatures", "board"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="ntc_1_temperature",
+        name="NTC probe 1",
+        path=("temperatures", "feeler_ntc_1"),
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="hours_before_service",
+        name="Hours before service",
+        path=("counters", "service_time"),
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:wrench-clock",
+    ),
+    EdilkaminStatusSensorDescription(
+        key="operational_phase_code",
+        name="Operational phase code",
+        path=("state", "operational_phase"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    EdilkaminStatusSensorDescription(
+        key="sub_operational_phase",
+        name="Sub operational phase",
+        path=("state", "sub_operational_phase"),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+)
+
+
+def nvm_timestamp_attribute(coordinator) -> str | None:
+    """Return when the nvm block was published, it can be older than status."""
+    timestamp = coordinator.get_status_timestamp("nvm")
+    if not isinstance(timestamp, (int, float)):
+        return None
+    return datetime.fromtimestamp(timestamp, UTC).isoformat()
 
 OPERATIONAL_STATES = {
     0: "Off",
@@ -56,6 +135,13 @@ async def async_setup_entry(
         EdilkaminDataAgeSensor(coordinator),
         EdilkaminLastUpdateSensor(coordinator),
     ]
+
+    # Only the values reported by this stove model get a sensor
+    sensors.extend(
+        EdilkaminStatusSensor(coordinator, description)
+        for description in STATUS_SENSORS
+        if coordinator.get_status_value(*description.path) is not None
+    )
 
     # "puffer" is the Edilkamin API key for the buffer tank water temperature.
     temperatures = coordinator.get_temperatures()
@@ -146,6 +232,9 @@ class EdilkaminFanSensor(EdilkaminEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
         self._state = self.coordinator.get_fan_speed(self._index)
+        self._attr_extra_state_attributes = {
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator)
+        }
         self.async_write_ha_state()
 
 
@@ -188,6 +277,7 @@ class EdilkaminAlarmSensor(EdilkaminEntity, SensorEntity):
 
         errors = {
             "errors": [],
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator),
         }
 
         for alarm in alarms:
@@ -351,6 +441,9 @@ class EdilkaminPowerOnsSensor(EdilkaminEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
         self._state = self.coordinator.get_power_ons()
+        self._attr_extra_state_attributes = {
+            "nvm_timestamp": nvm_timestamp_attribute(self.coordinator)
+        }
         self.async_write_ha_state()
 
 
@@ -426,3 +519,20 @@ class EdilkaminLastUpdateSensor(EdilkaminEntity, SensorEntity):
     def native_value(self) -> datetime | None:
         timestamp = self.coordinator.get_status_timestamp()
         return None if timestamp is None else datetime.fromtimestamp(timestamp, UTC)
+
+
+class EdilkaminStatusSensor(EdilkaminEntity, SensorEntity):
+    """A value of the status block of device/info."""
+
+    entity_description: EdilkaminStatusSensorDescription
+
+    def __init__(
+        self, coordinator, description: EdilkaminStatusSensorDescription
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{self._mac_address}_{description.key}"
+
+    @property
+    def native_value(self):
+        return self.coordinator.get_status_value(*self.entity_description.path)

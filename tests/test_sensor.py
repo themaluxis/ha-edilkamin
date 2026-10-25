@@ -193,7 +193,7 @@ class TestEdilkaminAlarmSensor:
         sensor._handle_coordinator_update()
 
         assert sensor._state == 0
-        assert sensor._attributes == {"errors": []}
+        assert sensor._attributes == {"errors": [], "nvm_timestamp": None}
         sensor.async_write_ha_state.assert_called_once()
 
 

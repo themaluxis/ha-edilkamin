@@ -11,10 +11,16 @@ from typing import TYPE_CHECKING
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 
+from .const import (
+    MAX_TARGET_TEMPERATURE,
+    MIN_TARGET_TEMPERATURE,
+    TARGET_TEMPERATURE_STEP,
+)
 from .entity import EdilkaminEntity
 
 if TYPE_CHECKING:
@@ -43,6 +49,32 @@ PRESET_4 = "Manual P4"
 PRESET_5 = "Manual P5"
 
 PRESET_MODES = [PRESET_AUTO, PRESET_1, PRESET_2, PRESET_3, PRESET_4, PRESET_5]
+# status.state.operational_phase -> action while the stove is powered on.
+# Phases match OPERATIONAL_STATES of sensor.py: 0 off (automatic standby),
+# 1 ignition, 2 on, 3 shutdown, 4 cooling, 5 alarm, 6 final cleaning.
+# Shutdown, cooling and final cleaning happen while going to standby.
+OPERATIONAL_PHASE_TO_HVAC_ACTION = {
+    0: HVACAction.IDLE,
+    1: HVACAction.PREHEATING,
+    2: HVACAction.HEATING,
+    3: HVACAction.IDLE,
+    4: HVACAction.IDLE,
+    6: HVACAction.IDLE,
+}
+
+
+def compute_hvac_action(power, operational_phase) -> HVACAction | None:
+    """Return the HVAC action from status.commands.power and the phase."""
+    if power is False:
+        return HVACAction.OFF
+    if power is not True:
+        return None
+    action = OPERATIONAL_PHASE_TO_HVAC_ACTION.get(operational_phase)
+    if action is None:
+        _LOGGER.debug("No HVAC action for operational phase %s", operational_phase)
+    return action
+
+
 PRESET_MODE_TO_POWER = {
     "Manual P1": 1,
     "Manual P2": 2,
@@ -83,8 +115,10 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
         self._attr_hvac_modes = CLIMATE_HVAC_MODE_MANAGED
         self._attr_hvac_mode = HVACMode.OFF  # default hvac mode
 
-        self._attr_max_temp = 24
-        self._attr_min_temp = 14
+        self._attr_max_temp = MAX_TARGET_TEMPERATURE
+        self._attr_min_temp = MIN_TARGET_TEMPERATURE
+        self._attr_target_temperature_step = TARGET_TEMPERATURE_STEP
+        self._attr_hvac_action = None
 
         self._attr_preset_modes = PRESET_MODES
         self._attr_preset_mode = PRESET_AUTO
@@ -150,6 +184,9 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
             self._attr_hvac_mode = HVACMode.HEAT
         else:
             self._attr_hvac_mode = HVACMode.OFF
+        self._attr_hvac_action = compute_hvac_action(
+            power, self.coordinator.get_operational_phase()
+        )
 
         if self.coordinator.is_auto():
             self._attr_preset_mode = PRESET_AUTO
@@ -169,7 +206,10 @@ class EdilkaminClimateEntity(EdilkaminEntity, ClimateEntity):
         else:
             command = self.api.enable_power()
 
-        await self._async_send_command(command, _attr_hvac_mode=hvac_mode)
+        optimistic = {"_attr_hvac_mode": hvac_mode}
+        if hvac_mode == HVACMode.OFF:
+            optimistic["_attr_hvac_action"] = HVACAction.OFF
+        await self._async_send_command(command, **optimistic)
 
     async def async_turn_on(self):
         """Turn on."""

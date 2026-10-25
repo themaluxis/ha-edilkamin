@@ -20,3 +20,9 @@ CHECK_COOLDOWN = 60  # seconds
 UNAVAILABLE_AFTER = 300  # seconds
 # Maximum time an optimistic value is kept after a command
 OPTIMISTIC_TIMEOUT = 60  # seconds
+
+# Target temperature range of the climate entity. Not widened: the bounds accepted
+# by the stove could not be verified yet (see CHANGELOG)
+MIN_TARGET_TEMPERATURE = 14  # °C
+MAX_TARGET_TEMPERATURE = 24  # °C
+TARGET_TEMPERATURE_STEP = 0.5  # °C

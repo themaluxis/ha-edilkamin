@@ -34,6 +34,17 @@ All notable changes to this integration are documented in this file.
   "reauthentication required" notification; entering the new password restores the
   integration without removing it.
 
+- Climate `hvac_action`: "Heating" (phase on), "Preheating" (ignition), "Idle"
+  (automatic standby, and shutdown / cooling / final cleaning while powered on) and
+  "Off" (turned off by the user). Alarm and unknown phases give no action (debug log).
+- New sensors read from `status` (created only when the stove reports the value):
+  `Smoke temperature` (thermocouple), and the diagnostics `Alarm code`,
+  `Board temperature`, `Hours before service`, plus `NTC probe 1`,
+  `Operational phase code` and `Sub operational phase` (disabled by default).
+  `status.state.actual_power` was already exposed by `Actual power`.
+- Sensors read from `nvm` (`Fan N`, `Nb alarms`, `Power ons`) expose an
+  `nvm_timestamp` attribute, as this block can be older than `status`.
+
 ### Changed
 
 - When the cloud answers HTTP 401 or 403 (token revoked server side), the integration
@@ -53,6 +64,12 @@ All notable changes to this integration are documented in this file.
   coordinator failed. Its `unique_id` and `entity_id` are unchanged.
 - The coordinator timeout is raised from 10 s to 30 s to absorb the wait after a
   `check`.
+- Climate target temperature bounds moved to constants (`MIN_TARGET_TEMPERATURE`,
+  `MAX_TARGET_TEMPERATURE`) and the 0.5 °C step is now explicit
+  (`target_temperature_step`). The 14–24 °C range is unchanged: the bounds accepted
+  by the stove have not been verified yet.
+- edilkamin library upgraded from 1.6.0 to 1.7.0 (type hints only, no API change;
+  `sign_in` is still synchronous and still run in the executor).
 - Coordinator and API are now stored per config entry (`entry.runtime_data`) instead
   of a global `hass.data[DOMAIN]["coordinator"]` key: several stoves can be configured
   side by side without overwriting each other.

@@ -55,6 +55,8 @@ The climate entity is able to:
   - manual p4
   - manual p5
 - control the main fan
+- show what the stove is doing (`hvac_action`): heating, preheating (ignition), idle
+  (automatic standby) or off
 
 ### Fan
 The Integration creates the number of fans depending on the pellet stove
@@ -70,12 +72,18 @@ The Integration creates the number of fans depending on the pellet stove
 | `Temperature`  |  The actual temperature   | celsius |
 | `Buffer temperature` | Buffer tank water temperature, when reported by the stove | celsius |
 | `Boiler temperature` | Boiler water temperature, when reported by the stove | celsius |
-| `Fan ${index}`  |  The fan speed  | int |
+| `Fan ${index}`  |  The fan speed (`nvm_timestamp` attribute: when this value was published)  | int |
 | `Nb alarms`  |  The number of alarms | int |
 | `Actual power`  |  The pover of the pellet stove | int |
 | `Operational phase`  |  The phase of the pellet stove | Off, Ignition, On, Shutdown, Cooling, Alarm, Final cleaning, Unknown |
 | `Autonomy`  |  Time remaining before the pellet stove turns off if no pellets are added | minute |
 | `Power ons`  |  Number of times the pellet stove has been turn on | int |
+| `Smoke temperature`  |  Smoke temperature (thermocouple), when reported | celsius |
+| `Alarm code`  |  Diagnostic. Current alarm code (0 = no alarm), when reported | int |
+| `Board temperature`  |  Diagnostic. Motherboard temperature, when reported | celsius |
+| `Hours before service`  |  Diagnostic. Hours left before maintenance, when reported | hour |
+| `NTC probe 1`  |  Diagnostic, disabled by default. NTC probe 1 temperature | celsius |
+| `Operational phase code` / `Sub operational phase`  |  Diagnostic, disabled by default. Raw phase codes | int |
 | `Data age`  |  Diagnostic. Seconds since the stove last published its state | second |
 | `Last stove update`  |  Diagnostic. Time the stove last published its state | timestamp |
 

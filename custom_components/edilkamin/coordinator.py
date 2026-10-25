@@ -257,6 +257,15 @@ class EdilkaminCoordinator(DataUpdateCoordinator):
         """Return the MAC address."""
         return self._mac_address
 
+    def get_status_value(self, *path: str):
+        """Return a value of the status block by its path, None when missing."""
+        value = self._device_info.get("status")
+        for key in path:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
+        return value
+
     def get_temperatures(self) -> dict:
         """Get the temperatures mapping reported by the device."""
         return (self._device_info.get("status") or {}).get("temperatures") or {}
